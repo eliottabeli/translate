@@ -1,7 +1,5 @@
-\
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, Optional
 
 from bs4 import BeautifulSoup, Tag, NavigableString

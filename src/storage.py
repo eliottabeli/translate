@@ -1,16 +1,21 @@
-\
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
 
+def _ensure_exists(path: Path) -> Path:
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+    return path
+
+
 def read_text(path: str | Path, encoding: str = "utf-8") -> str:
-    return Path(path).read_text(encoding=encoding)
+    p = _ensure_exists(Path(path))
+    return p.read_text(encoding=encoding)
 
 
 def write_text(path: str | Path, text: str, encoding: str = "utf-8") -> None:
@@ -20,7 +25,8 @@ def write_text(path: str | Path, text: str, encoding: str = "utf-8") -> None:
 
 
 def read_json(path: str | Path) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
+    p = _ensure_exists(Path(path))
+    with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
 
 

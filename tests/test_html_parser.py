@@ -1,4 +1,3 @@
-\
 from src.html_parser import extract_segments, rebuild_html
 
 

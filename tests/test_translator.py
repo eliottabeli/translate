@@ -1,4 +1,3 @@
-\
 from src.translator import (
     DummyTranslator,
     TranslationMemory,

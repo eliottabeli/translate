@@ -1,7 +1,5 @@
-\
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -31,7 +29,10 @@ load_dotenv()
 
 
 def load_config(path: str) -> Dict[str, Any]:
-    return storage.read_json(path)
+    cfg_path = Path(path)
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {cfg_path}")
+    return storage.read_json(cfg_path)
 
 
 def main() -> None:
@@ -42,14 +43,23 @@ def main() -> None:
         st.header("Configuration")
         config_path = st.text_input("Chemin config.json", value="config.json")
         if st.button("Charger config"):
-            st.session_state["cfg"] = load_config(config_path)
+            try:
+                st.session_state["cfg"] = load_config(config_path)
+                st.success(f"Configuration chargée depuis {config_path}")
+            except FileNotFoundError as exc:
+                st.error(str(exc))
 
         if "cfg" not in st.session_state:
             # fallback
-            if Path("config.json").exists():
-                st.session_state["cfg"] = load_config("config.json")
+            for candidate in ("config.json", "config.example.json"):
+                try:
+                    st.session_state["cfg"] = load_config(candidate)
+                    break
+                except FileNotFoundError:
+                    continue
             else:
-                st.session_state["cfg"] = load_config("config.example.json")
+                st.error("Aucun fichier de configuration trouvé (config.json ou config.example.json)")
+                st.stop()
 
         cfg = st.session_state["cfg"]
         st.json(cfg, expanded=False)

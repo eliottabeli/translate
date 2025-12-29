@@ -1,4 +1,3 @@
-\
 from __future__ import annotations
 
 import argparse
@@ -15,8 +14,16 @@ def main() -> None:
     parser.add_argument("--out", required=True, help="Output translated HTML")
     args = parser.parse_args()
 
-    html_text = storage.read_text(args.html)
-    segs = storage.read_json(args.segments)
+    html_path = Path(args.html)
+    segs_path = Path(args.segments)
+
+    if not html_path.exists():
+        raise SystemExit(f"Source HTML not found: {html_path}")
+    if not segs_path.exists():
+        raise SystemExit(f"Segments file not found: {segs_path}")
+
+    html_text = storage.read_text(html_path)
+    segs = storage.read_json(segs_path)
 
     out_html = rebuild_html(html_text, segs)
     storage.write_text(args.out, out_html)
