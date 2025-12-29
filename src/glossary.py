@@ -350,8 +350,8 @@ def generate_translation_proposals(
                 "term": cand.term,
                 "fr_preferred": cand.term,
                 "fr_alternatives": [],
-                "pos": "", 
-                "definition_fr_short": "", 
+                "pos": "",
+                "definition_fr_short": "",
                 "register_note": "Fournir une traduction manuelle (clé API manquante).",
                 "do_not_translate": False,
                 "justification": "Placeholder faute de configuration API.",
@@ -385,28 +385,87 @@ def generate_translation_proposals(
             max_tokens=800,
         )
         content = resp.choices[0].message.content or ""
-        try:
-            data = json.loads(content)
-            if isinstance(data, list):
-                proposals.extend(data)
-            elif isinstance(data, dict):
-                proposals.append(data)
-        except json.JSONDecodeError:
-            for cand in batch:
-                proposals.append(
-                    {
-                        "term": cand.term,
-                        "fr_preferred": cand.term,
-                        "fr_alternatives": [],
-                        "pos": "",
-                        "definition_fr_short": "",
-                        "register_note": "Réponse non JSON : relire manuellement.",
-                        "do_not_translate": False,
-                        "justification": content[:180],
-                    }
-                )
+        parsed = _parse_glossary_response(content, batch)
+        if parsed:
+            proposals.extend(parsed)
+        else:
+            proposals.extend(_fallback_proposals(batch, content))
     return proposals
 
 
 def _has_openai() -> bool:
     return importlib.util.find_spec("openai") is not None
+
+
+def _fallback_proposals(batch: List[TermCandidate], content: str) -> List[Dict[str, Any]]:
+    return [
+        {
+            "term": cand.term,
+            "fr_preferred": cand.term,
+            "fr_alternatives": [],
+            "pos": "",
+            "definition_fr_short": "",
+            "register_note": "Réponse non JSON : relire manuellement.",
+            "do_not_translate": False,
+            "justification": content[:180],
+        }
+        for cand in batch
+    ]
+
+
+def _parse_glossary_response(content: str, batch: List[TermCandidate]) -> List[Dict[str, Any]]:
+    """Try to parse OpenAI JSON output and align it to the input batch order.
+
+    The helper is defensive against slightly malformed responses (NDJSON, extra
+    commas, out-of-order objects) to avoid term/proposal shifts.
+    """
+
+    def _coerce_list(data: Any) -> List[Dict[str, Any]]:
+        if isinstance(data, list):
+            return [d for d in data if isinstance(d, dict)]
+        if isinstance(data, dict):
+            return [data]
+        return []
+
+    proposals_raw: List[Dict[str, Any]] = []
+    try:
+        proposals_raw = _coerce_list(json.loads(content))
+    except json.JSONDecodeError:
+        pass
+
+    if not proposals_raw:
+        ndjson_items: List[Dict[str, Any]] = []
+        for line in content.splitlines():
+            candidate_line = line.strip().rstrip(",")
+            if not candidate_line:
+                continue
+            try:
+                obj = json.loads(candidate_line)
+                if isinstance(obj, dict):
+                    ndjson_items.append(obj)
+            except json.JSONDecodeError:
+                continue
+        proposals_raw = ndjson_items
+
+    if not proposals_raw:
+        return []
+
+    aligned: List[Dict[str, Any]] = []
+    remaining = proposals_raw.copy()
+    for cand in batch:
+        match_idx = next(
+            (i for i, item in enumerate(remaining) if str(item.get("term", "")).lower() == cand.term.lower()),
+            None,
+        )
+        if match_idx is not None:
+            proposal = remaining.pop(match_idx)
+        elif remaining:
+            proposal = remaining.pop(0)
+        else:
+            aligned.extend(_fallback_proposals([cand], content))
+            continue
+
+        proposal.setdefault("term", cand.term)
+        aligned.append(proposal)
+
+    return aligned
