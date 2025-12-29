@@ -1,7 +1,7 @@
-\
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from src import storage
 from src.images_ocr import ocr_images_folder
@@ -16,8 +16,12 @@ def main() -> None:
     parser.add_argument("--only-if-filename-matches", default="", help="Regex: OCR only matching filenames")
     args = parser.parse_args()
 
+    images_dir = Path(args.images)
+    if not images_dir.exists():
+        raise SystemExit(f"Images folder not found: {images_dir}")
+
     results = ocr_images_folder(
-        images_dir=args.images,
+        images_dir=str(images_dir),
         lang=args.lang,
         tesseract_cmd=args.tesseract_cmd,
         only_if_filename_matches=args.only_if_filename_matches,

@@ -1,4 +1,3 @@
-\
 from src.postproc import compare_html_structure
 
 

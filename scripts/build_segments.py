@@ -1,4 +1,3 @@
-\
 from __future__ import annotations
 
 import argparse
@@ -15,7 +14,11 @@ def main() -> None:
     parser.add_argument("--meta-out", default="", help="Optional output segments_meta.json")
     args = parser.parse_args()
 
-    html_text = storage.read_text(args.html)
+    html_path = Path(args.html)
+    if not html_path.exists():
+        raise SystemExit(f"Input HTML not found: {html_path}")
+
+    html_text = storage.read_text(html_path)
     segments, meta = extract_segments(html_text)
 
     storage.write_json(args.out, segments)
