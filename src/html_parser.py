@@ -34,6 +34,10 @@ def extract_segments(
 
     segments: List[Dict[str, Any]] = []
     seg_id = 0
+    section_stack: List[Dict[str, Any]] = []
+    section_counter = 0
+    list_ids: Dict[int, str] = {}
+    list_counter = 0
 
     for tag in soup.find_all(block_tags):
         inner = _inner_html(tag)
@@ -42,12 +46,48 @@ def extract_segments(
         if not include_empty and plain == "" and inner.strip() == "":
             continue
 
+        # Track heading hierarchy for contextual chunking
+        if tag.name and tag.name.startswith("h") and len(tag.name) == 2 and tag.name[1].isdigit():
+            level = int(tag.name[1])
+            while section_stack and section_stack[-1]["level"] >= level:
+                section_stack.pop()
+            section_counter += 1
+            section_stack.append(
+                {
+                    "id": f"sec_{section_counter:04d}",
+                    "title": plain,
+                    "level": level,
+                }
+            )
+
+        section_id = section_stack[-1]["id"] if section_stack else "sec_root"
+        section_titles = [s["title"] for s in section_stack]
+        section_levels = [s["level"] for s in section_stack]
+
+        list_parent = tag.find_parent(["ul", "ol"])
+        list_id = None
+        if list_parent:
+            key = id(list_parent)
+            if key not in list_ids:
+                list_counter += 1
+                list_ids[key] = f"list_{list_counter:04d}"
+            list_id = list_ids[key]
+
+        context_group = section_id
+        if list_id:
+            context_group = f"{section_id}:{list_id}"
+
         segments.append(
             {
                 "id": f"seg_{seg_id:04d}",
                 "tag": tag.name,
                 "html": inner,
                 "text": plain,
+                "section_id": section_id,
+                "section_titles": section_titles,
+                "section_levels": section_levels,
+                "context_group": context_group,
+                "list_id": list_id,
             }
         )
         seg_id += 1
@@ -56,6 +96,7 @@ def extract_segments(
         "source_sha1": sha1_text(html_text),
         "n_segments": len(segments),
         "block_tags": block_tags,
+        "sections": section_counter,
     }
     return segments, meta
 

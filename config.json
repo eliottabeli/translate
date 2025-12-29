@@ -5,10 +5,22 @@
     "segments_json": "data/segments/segments.json",
     "segments_meta_json": "data/segments/segments_meta.json",
     "images_ocr_json": "data/segments/images_ocr.json",
+    "term_candidates_json": "data/segments/term_candidates.json",
     "glossary_json": "data/segments/glossary.json",
+    "glossary_draft_json": "data/segments/glossary_draft.json",
+    "glossary_proposals_json": "data/segments/glossary_proposals.json",
     "translations_json": "data/translations/segments_translated.json",
+    "translations_v2_json": "data/translations/segments_translated_v2.json",
+    "translation_memory": "data/translations/translation_memory.jsonl",
     "exports_dir": "data/exports",
-    "logs_dir": "logs"
+    "logs_dir": "logs",
+    "style_guide": "style_guide.json",
+    "style_guide_default": "style_guide.default.json",
+    "style_guide_schema": "style_guide.schema.json",
+    "terminology_report": "data/qa/terminology_report.json",
+    "terminology_corrections": "data/qa/terminology_corrections.json",
+    "register_report": "data/qa/register_report.json",
+    "audit_report": "logs/audit.json"
   },
   "segmentation": {
     "block_tags": [
@@ -30,20 +42,39 @@
   },
   "glossary": {
     "enabled": true,
-    "top_n": 150,
-    "min_len": 4,
-    "include_from_tags": [
-      "em",
-      "i",
-      "strong"
-    ],
-    "stopwords_lang": "english"
+    "top_n": 400,
+    "draft_top_n": 250,
+    "min_len": 3,
+    "stopwords_lang": "english",
+    "proposals": {
+      "enabled": true,
+      "top_n": 300,
+      "k": 3
+    }
   },
   "translation": {
     "enabled": true,
     "source_lang": "EN",
     "target_lang": "FR",
     "provider": "openai",
+    "parallel_workers": 2,
+    "structure_guard": {
+      "enabled": true
+    },
+    "scheduling": {
+      "requests_per_minute": 60,
+      "max_retries": 2,
+      "retry_backoff_seconds": 2.0
+    },
+    "translation_memory": {
+      "path": "data/translations/translation_memory.jsonl",
+      "max_segments": 5000,
+      "max_terms": 400,
+      "fuzzy_threshold": 0.86
+    },
+    "safety": {
+      "mask_numbers_dates": true
+    },
     "openai": {
       "model": "gpt-4.1-mini",
       "temperature": 0.1,
@@ -58,6 +89,30 @@
       "max_segments_per_chunk": 8
     }
   },
+  "revision": {
+    "enabled": true,
+    "provider": "openai",
+    "parallel_workers": 2,
+    "structure_guard": {
+      "enabled": true
+    },
+    "scheduling": {
+      "requests_per_minute": 60,
+      "max_retries": 2,
+      "retry_backoff_seconds": 2.0
+    },
+    "safety": {
+      "mask_numbers_dates": true
+    },
+    "openai": {
+      "model": "gpt-4.1-mini",
+      "temperature": 0.1,
+      "max_output_tokens": 2000
+    }
+  },
+  "pipeline": {
+    "resume": true
+  },
   "postproc": {
     "apply_glossary": true,
     "verify_html_structure": true,
@@ -67,6 +122,9 @@
   "qa": {
     "enabled": false,
     "back_translation": false,
-    "min_difflib_ratio": 0.65
+    "min_difflib_ratio": 0.65,
+    "terminology_report": true,
+    "auto_correct_terminology": true,
+    "register_report": true
   }
 }

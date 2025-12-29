@@ -1,0 +1,16 @@
+{
+  "register": "académique, neutre, précis",
+  "context": "manuel universitaire d'histoire médiévale et de la féodalité",
+  "conventions": [
+    "Siècles en chiffres romains suivis de 'e siècle' (ex : XIIe siècle)",
+    "Ponctuation française : guillemets « » et espace fine insécable avant : ; ? !",
+    "Préserver la numérotation, les dates et les citations telles quelles",
+    "Utiliser des tournures analytiques sobres (éviter les calques anglicisés)"
+  ],
+  "preferences": [
+    "Éviter le sujet impersonnel 'on' lorsque le sujet est connu",
+    "Favoriser des collocations académiques comme 'à l'égard de', 'vis-à-vis de', 'relève de', 'renvoie à'",
+    "Stabiliser la terminologie technique sur l'ensemble du document",
+    "Favoriser les nominalisations modérées lorsque cela clarifie l'argument"
+  ]
+}
