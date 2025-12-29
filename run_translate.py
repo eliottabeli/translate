@@ -26,11 +26,13 @@ from src.translator import (
     MissingApiKeyError,
     translate_segments,
     revise_segments,
+    enforce_consistency_segments,
     load_style_guide,
     TranslationMemory,
     RateLimiter,
     AuditTrail,
 )
+from src.evaluation import run_automatic_evaluation
 from src.postproc import (
     apply_glossary_to_fragment,
     compare_html_structure,
@@ -205,6 +207,7 @@ def translate_pipeline(
         translation_memory=tm,
         max_chars_per_chunk=int(chcfg.get("max_chars_per_chunk", 9000)),
         max_segments_per_chunk=int(chcfg.get("max_segments_per_chunk", 8)),
+        context_window=int(chcfg.get("context_window", 1)),
         parallel_workers=int(cfg["translation"].get("parallel_workers", 1)),
         structure_guard=bool(guard_cfg.get("enabled", True)),
         max_retries=int(sched_cfg.get("max_retries", 2)),
@@ -254,6 +257,7 @@ def run_revision(
         global_context=style_guide.context,
         translation_memory=tm,
         preferred_collocations=collocations,
+        context_window=int(cfg.get("revision", {}).get("context_window", 1)),
         parallel_workers=int(cfg.get("revision", {}).get("parallel_workers", 1)),
         structure_guard=bool(rev_guard.get("enabled", True)),
         max_retries=int(rev_sched.get("max_retries", 2)),
@@ -265,6 +269,58 @@ def run_revision(
     )
     storage.write_json(paths["translations_v2_json"], revised)
     return revised
+
+
+def run_consistency(
+    translated: List[Dict[str, Any]],
+    cfg: Dict[str, Any],
+    paths: Dict[str, Any],
+    glossary_map: Dict[str, str],
+    style_guide,
+    tm: TranslationMemory,
+    audit: AuditTrail,
+    logger,
+) -> List[Dict[str, Any]]:
+    ccfg = cfg.get("consistency", {})
+    if not ccfg.get("enabled", True):
+        logger.info("   Consistency pass skipped (consistency.enabled=false).")
+        return translated
+
+    if cfg["translation"].get("provider", "openai").lower() != "openai":
+        logger.info("   Consistency pass requires OpenAI provider; skipping.")
+        return translated
+
+    rcfg = ccfg.get("openai", {})
+    revisor = OpenAIRevisor(
+        cfg=OpenAIConfig(
+            model=rcfg.get("model", "gpt-4.1-mini"),
+            temperature=float(rcfg.get("temperature", 0.1)),
+            max_output_tokens=int(rcfg.get("max_output_tokens", 2000)),
+        )
+    )
+    rev_sched = ccfg.get("scheduling", {})
+    rev_guard = ccfg.get("structure_guard", {})
+    rev_limiter = RateLimiter(int(rev_sched.get("requests_per_minute", 0)))
+    rev_safety = ccfg.get("safety", {})
+
+    reviewed = enforce_consistency_segments(
+        translated,
+        revisor=revisor,
+        glossary_map=glossary_map,
+        style_guide=style_guide,
+        translation_memory=tm,
+        context_window=int(ccfg.get("context_window", 1)),
+        parallel_workers=int(ccfg.get("parallel_workers", 1)),
+        structure_guard=bool(rev_guard.get("enabled", True)),
+        max_retries=int(rev_sched.get("max_retries", 2)),
+        retry_backoff=float(rev_sched.get("retry_backoff_seconds", 2.0)),
+        rate_limiter=rev_limiter,
+        mask_numbers_dates=bool(rev_safety.get("mask_numbers_dates", True)),
+        audit=audit,
+        logger=logger,
+    )
+    storage.write_json(paths.get("translations_consistency_json", paths["translations_v2_json"]), reviewed)
+    return reviewed
 
 
 def postprocess_segments(
@@ -411,7 +467,14 @@ def main() -> None:
         raise SystemExit(1)
 
     try:
-        logger.info("7) Post-processing + checks…")
+        logger.info("7) Consistency and coherence sweep…")
+        translated = run_consistency(translated, cfg, paths, glossary_map, style_guide, tm, audit, logger)
+    except Exception:
+        logger.exception("Consistency pass failed.")
+        raise SystemExit(1)
+
+    try:
+        logger.info("8) Post-processing + checks…")
         translated = postprocess_segments(translated, cfg, glossary_map, logger)
         storage.write_json(paths["translations_json"], translated)
     except Exception:
@@ -421,20 +484,30 @@ def main() -> None:
     qa_cfg = cfg.get("qa", {})
     if qa_cfg.get("enabled", True):
         try:
-            logger.info("8) QA reports…")
+            logger.info("9) QA reports…")
             run_qa_reports(translated, cfg, paths, glossary_map, audit, logger)
         except Exception:
             logger.exception("QA stage failed.")
             raise SystemExit(1)
     else:
-        logger.info("8) QA reports skipped (qa.enabled=false).")
+        logger.info("9) QA reports skipped (qa.enabled=false).")
+
+    try:
+        logger.info("10) Automatic evaluation (BLEU/COMET + checklist)…")
+        eval_report = run_automatic_evaluation(translated, cfg, glossary_map, style_guide, logger)
+        if eval_report:
+            storage.write_json(paths.get("evaluation_report", "logs/evaluation.json"), eval_report)
+            audit.record("evaluation", {"has_report": True, "samples": eval_report.get("samples", 0)})
+    except Exception:
+        logger.exception("Evaluation stage failed.")
+        raise SystemExit(1)
 
     audit_path = paths.get("audit_report", "logs/audit.json")
     storage.write_json(audit_path, audit.as_list())
     logger.info(f"   Audit trail saved to: {audit_path}")
 
     try:
-        logger.info("9) Rebuild final HTML…")
+        logger.info("11) Rebuild final HTML…")
         export_html(html_text, translated, cfg, paths, logger)
     except Exception:
         logger.exception("Export failed.")

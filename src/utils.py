@@ -170,6 +170,37 @@ def chunk_segments_contextual(
             yield cursor
 
 
+def build_context_windows(
+    segments: List[Dict[str, Any]],
+    window: int = 1,
+) -> Dict[str, Dict[str, str]]:
+    """
+    Build a light context window for each segment with the previous/next textual neighbors.
+
+    The window is inclusive of up to ``window`` segments before and after the current
+    index. This is meant to be injected into prompts so models see immediate context
+    without changing chunking boundaries.
+    """
+
+    if window <= 0 or not segments:
+        return {}
+
+    context_map: Dict[str, Dict[str, str]] = {}
+    texts = [compact_whitespace(seg.get("text", "")) for seg in segments]
+
+    for i, seg in enumerate(segments):
+        prev_idx_start = max(0, i - window)
+        next_idx_end = min(len(segments), i + window + 1)
+        previous = [t for t in texts[prev_idx_start:i] if t]
+        following = [t for t in texts[i + 1 : next_idx_end] if t]
+        context_map[seg.get("id", str(i))] = {
+            "previous": " | ".join(previous[-window:]),
+            "next": " | ".join(following[:window]),
+        }
+
+    return context_map
+
+
 def strip_control_chars(s: str) -> str:
     # Keep \n and \t
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", s)
