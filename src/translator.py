@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Pattern, Protocol, Tuple
 from bs4 import BeautifulSoup, Comment, NavigableString
 
 from .postproc import compare_html_structure
-from .utils import chunk_segments_contextual, compact_whitespace, sha1_text
+from .utils import build_context_windows, chunk_segments_contextual, compact_whitespace, sha1_text
 
 
 SYSTEM_PROMPT_HTML_TRANSLATION = """\
@@ -54,6 +54,21 @@ SOURCE HTML:
 {source_html}
 
 FRENCH DRAFT:
+{translated_html}
+"""
+
+CONSISTENCY_PROMPT_TEMPLATE = """\
+You are checking a segmented French translation for cross-segment coherence and style.
+Preserve all HTML tags/attributes and keep numbers, dates, and references unchanged.
+Ensure terminology stays aligned with the glossary and the style guide (tone: médiéval, academic, precise).
+Make only minimal edits needed for coherence between the provided neighboring context and the segment.
+
+Previous context (French): {previous_context}
+Next context (French): {next_context}
+Style guide: {style_guide}
+Glossary (JSON): {glossary_json}
+
+SEGMENT HTML:
 {translated_html}
 """
 
@@ -190,6 +205,18 @@ def _load_json(path: Optional[str]) -> Optional[Dict[str, Any]]:
             return json.loads(f.read())
     except FileNotFoundError:
         return None
+
+
+def build_style_payload(style_guide: Optional[StyleGuide]) -> Dict[str, Any]:
+    if not style_guide:
+        return {}
+    return {
+        "style": style_guide.as_prompt(),
+        "register": style_guide.register,
+        "context": style_guide.context,
+        "conventions": style_guide.conventions or [],
+        "preferences": style_guide.preferences or [],
+    }
 
 
 DEFAULT_STYLE_GUIDE_FALLBACK: Dict[str, Any] = {
@@ -668,6 +695,35 @@ class OpenAIRevisor(OpenAITranslator):
         content = resp.choices[0].message.content or ""
         return _strip_code_fences(content).strip()
 
+    def consistency_review_html(
+        self,
+        translated_html: str,
+        previous_context: str = "",
+        next_context: str = "",
+        glossary: Optional[Dict[str, str]] = None,
+        style_guide: Optional[Dict[str, Any]] = None,
+        term_bank: Optional[List[str]] = None,
+    ) -> str:
+        glossary_json = json.dumps(glossary or {}, ensure_ascii=False)
+        prompt = CONSISTENCY_PROMPT_TEMPLATE.format(
+            previous_context=previous_context,
+            next_context=next_context,
+            style_guide=json.dumps(style_guide or {}, ensure_ascii=False),
+            glossary_json=glossary_json,
+            translated_html=translated_html,
+        )
+        resp = self._client.chat.completions.create(
+            model=self.cfg.model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_HTML_TRANSLATION},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=self.cfg.temperature,
+            max_tokens=self.cfg.max_output_tokens,
+        )
+        content = resp.choices[0].message.content or ""
+        return _strip_code_fences(content).strip()
+
 
 def _strip_code_fences(s: str) -> str:
     fence = re.compile(r"^\s*```(?:html)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
@@ -705,6 +761,29 @@ def _validate_guarded_chunk(html: str, chunk: List[Dict[str, Any]]) -> None:
         )
 
 
+def _render_chunk_context(
+    chunk: List[Dict[str, Any]],
+    context_map: Dict[str, Dict[str, str]],
+    base_context: str,
+) -> str:
+    lines: List[str] = []
+    if base_context:
+        lines.append(base_context)
+    for seg in chunk:
+        ctx = context_map.get(seg.get("id", ""), {})
+        prev_ctx = ctx.get("previous", "").strip()
+        next_ctx = ctx.get("next", "").strip()
+        if prev_ctx or next_ctx:
+            lines.append(
+                " | ".join(
+                    part
+                    for part in [f"prev: {prev_ctx}" if prev_ctx else "", f"next: {next_ctx}" if next_ctx else ""]
+                    if part
+                )
+            )
+    return "\n".join(lines)
+
+
 def translate_segments(
     segments: List[Dict[str, Any]],
     translator: BaseTranslator,
@@ -714,6 +793,7 @@ def translate_segments(
     translation_memory: Optional[TranslationMemory] = None,
     max_chars_per_chunk: int = 9000,
     max_segments_per_chunk: int = 8,
+    context_window: int = 1,
     parallel_workers: int = 1,
     structure_guard: bool = True,
     max_retries: int = 2,
@@ -727,9 +807,10 @@ def translate_segments(
 
     out: List[Dict[str, Any]] = [dict(seg) for seg in segments]
     id_to_index = {seg["id"]: i for i, seg in enumerate(out)}
-    style_prompt = style_guide.as_prompt() if style_guide else ""
+    style_payload = build_style_payload(style_guide)
     tm = translation_memory or TranslationMemory()
     glossary_variants = build_glossary_variant_map(glossary_map)
+    context_map = build_context_windows(out, window=context_window)
     pending: List[Dict[str, Any]] = []
     for seg in out:
         match = tm.fuzzy_lookup(seg.get("text", ""))
@@ -753,6 +834,7 @@ def translate_segments(
             f'<{seg["tag"]} data-seg-id="{seg["id"]}">{seg["html"]}</{seg["tag"]}>'
             for seg in chunk
         ) + "</div>"
+        chunk_context = _render_chunk_context(chunk, context_map, base_context=global_context)
 
         chunk_html, glossary_placeholders = mask_glossary_terms(chunk_html, glossary_variants)
         number_placeholders: Dict[str, str] = {}
@@ -783,8 +865,8 @@ def translate_segments(
                 candidate = translator.translate_html(
                     chunk_html,
                     glossary=glossary_map or {},
-                    style_guide={"style": style_prompt},
-                    global_context=global_context,
+                    style_guide=style_payload,
+                    global_context=chunk_context,
                     term_bank=tm.recent_terms(),
                 ).strip()
 
@@ -878,6 +960,7 @@ def revise_segments(
     global_context: str = "",
     translation_memory: Optional[TranslationMemory] = None,
     preferred_collocations: Optional[List[str]] = None,
+    context_window: int = 1,
     parallel_workers: int = 1,
     structure_guard: bool = True,
     max_retries: int = 2,
@@ -891,9 +974,10 @@ def revise_segments(
 
     out: List[Dict[str, Any]] = [dict(seg) for seg in segments]
     id_to_index = {seg["id"]: i for i, seg in enumerate(out)}
-    style_prompt = style_guide.as_prompt() if style_guide else ""
+    style_payload = build_style_payload(style_guide)
     tm = translation_memory or TranslationMemory()
     glossary_variants = build_glossary_variant_map(glossary_map)
+    context_map = build_context_windows(out, window=context_window)
 
     def _revise(seg: Dict[str, Any]) -> Tuple[str, str, str]:
         src_html = f'<{seg["tag"]}>{seg.get("html", "")}</{seg["tag"]}>'
@@ -901,6 +985,8 @@ def revise_segments(
         guarded_html = tr_html
         if structure_guard:
             guarded_html = f'<div data-guard="container">{tr_html}</div>'
+
+        context_str = _render_chunk_context([seg], context_map, base_context=global_context)
 
         masked_html, glossary_placeholders = mask_glossary_terms(guarded_html, glossary_variants)
         number_placeholders: Dict[str, str] = {}
@@ -928,8 +1014,8 @@ def revise_segments(
                     source_html=src_html,
                     translated_html=masked_html,
                     glossary=glossary_map or {},
-                    style_guide={"style": style_prompt},
-                    global_context=global_context,
+                    style_guide=style_payload,
+                    global_context=context_str,
                     term_bank=tm.recent_terms(),
                     preferred_collocations=preferred_collocations,
                 )
@@ -976,6 +1062,123 @@ def revise_segments(
     else:
         with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
             futures = [executor.submit(_revise, seg) for seg in out]
+            for future in as_completed(futures):
+                seg_id, inner, text = future.result()
+                idx = id_to_index.get(seg_id)
+                if idx is None:
+                    continue
+                out[idx]["html_translated"] = inner
+                out[idx]["text_translated"] = text
+    return out
+
+
+def enforce_consistency_segments(
+    segments: List[Dict[str, Any]],
+    revisor: OpenAIRevisor,
+    glossary_map: Optional[Dict[str, str]] = None,
+    style_guide: Optional[StyleGuide] = None,
+    translation_memory: Optional[TranslationMemory] = None,
+    context_window: int = 1,
+    parallel_workers: int = 1,
+    structure_guard: bool = True,
+    max_retries: int = 2,
+    retry_backoff: float = 2.0,
+    rate_limiter: Optional[RateLimiter] = None,
+    mask_numbers_dates: bool = True,
+    audit: Optional[AuditTrail] = None,
+    logger: Optional[logging.Logger] = None,
+) -> List[Dict[str, Any]]:
+    """Third pass: enforce local coherence using neighboring context windows."""
+
+    out: List[Dict[str, Any]] = [dict(seg) for seg in segments]
+    id_to_index = {seg["id"]: i for i, seg in enumerate(out)}
+    style_payload = build_style_payload(style_guide)
+    tm = translation_memory or TranslationMemory()
+    glossary_variants = build_glossary_variant_map(glossary_map)
+    context_map = build_context_windows(out, window=context_window)
+
+    def _check(seg: Dict[str, Any]) -> Tuple[str, str, str]:
+        tr_html = f'<{seg["tag"]}>{seg.get("html_translated", "")}</{seg["tag"]}>'
+        guarded_html = tr_html
+        if structure_guard:
+            guarded_html = f'<div data-guard="container">{tr_html}</div>'
+
+        masked_html, glossary_placeholders = mask_glossary_terms(guarded_html, glossary_variants)
+        number_placeholders: Dict[str, str] = {}
+        if mask_numbers_dates:
+            masked_html, number_placeholders = mask_numbers_dates_citations(masked_html)
+
+        ctx = context_map.get(seg.get("id", ""), {})
+
+        if audit:
+            audit.record(
+                "consistency_prompt",
+                {
+                    "segment_id": seg.get("id"),
+                    "hash": sha1_text(masked_html),
+                    "glossary_tokens": len(glossary_placeholders),
+                    "number_tokens": len(number_placeholders),
+                    "context_prev_len": len(ctx.get("previous", "")),
+                    "context_next_len": len(ctx.get("next", "")),
+                },
+            )
+
+        reviewed = ""
+        attempts = max(1, max_retries + 1)
+        for attempt in range(attempts):
+            if rate_limiter:
+                rate_limiter.wait()
+            try:
+                candidate = revisor.consistency_review_html(
+                    translated_html=masked_html,
+                    previous_context=ctx.get("previous", ""),
+                    next_context=ctx.get("next", ""),
+                    glossary=glossary_map or {},
+                    style_guide=style_payload,
+                    term_bank=tm.recent_terms(),
+                )
+                candidate = unmask_numbers_dates_citations(candidate, number_placeholders)
+                candidate = unmask_glossary_terms(candidate, glossary_placeholders)
+                if structure_guard:
+                    ok, issues = compare_html_structure(guarded_html, candidate)
+                    if not ok:
+                        raise ValueError(
+                            f"HTML structure drift detected during consistency pass: {'; '.join(issues)}"
+                        )
+                reviewed = candidate
+                break
+            except Exception as exc:  # noqa: PERF203 - retries intentionally broad
+                if logger:
+                    logger.warning(
+                        "Consistency review of segment %s attempt %s/%s failed: %s",
+                        seg.get("id"),
+                        attempt + 1,
+                        attempts,
+                        exc,
+                    )
+                if attempt < attempts - 1:
+                    time.sleep(retry_backoff * (2**attempt))
+                else:
+                    raise
+
+        soup = BeautifulSoup(reviewed or tr_html, "html.parser")
+        container = soup.find(seg["tag"]) or soup
+        inner = "".join(str(x) for x in container.contents)
+        text = compact_whitespace(container.get_text(" ", strip=True))
+        tm.add_segment(seg.get("text", ""), text, target_html=inner, logger=logger)
+        return seg["id"], inner, text
+
+    if parallel_workers <= 1:
+        for seg in out:
+            seg_id, inner, text = _check(seg)
+            idx = id_to_index.get(seg_id)
+            if idx is None:
+                continue
+            out[idx]["html_translated"] = inner
+            out[idx]["text_translated"] = text
+    else:
+        with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+            futures = [executor.submit(_check, seg) for seg in out]
             for future in as_completed(futures):
                 seg_id, inner, text = future.result()
                 idx = id_to_index.get(seg_id)

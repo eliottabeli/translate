@@ -9,6 +9,8 @@ nltk>=3.8
 language-tool-python>=2.7
 requests>=2.31
 tqdm>=4.66
+sacrebleu>=2.4
+unbabel-comet>=2.2
 
 # Providers (optionnels)
 openai>=1.0.0

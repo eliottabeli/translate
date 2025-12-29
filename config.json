@@ -11,6 +11,7 @@
     "glossary_proposals_json": "data/segments/glossary_proposals.json",
     "translations_json": "data/translations/segments_translated.json",
     "translations_v2_json": "data/translations/segments_translated_v2.json",
+    "translations_consistency_json": "data/translations/segments_translated_consistency.json",
     "translation_memory": "data/translations/translation_memory.jsonl",
     "exports_dir": "data/exports",
     "logs_dir": "logs",
@@ -20,6 +21,7 @@
     "terminology_report": "data/qa/terminology_report.json",
     "terminology_corrections": "data/qa/terminology_corrections.json",
     "register_report": "data/qa/register_report.json",
+    "evaluation_report": "logs/evaluation.json",
     "audit_report": "logs/audit.json"
   },
   "segmentation": {
@@ -86,13 +88,36 @@
     },
     "chunking": {
       "max_chars_per_chunk": 9000,
-      "max_segments_per_chunk": 8
+      "max_segments_per_chunk": 8,
+      "context_window": 1
     }
   },
   "revision": {
     "enabled": true,
     "provider": "openai",
     "parallel_workers": 2,
+    "structure_guard": {
+      "enabled": true
+    },
+    "scheduling": {
+      "requests_per_minute": 60,
+      "max_retries": 2,
+      "retry_backoff_seconds": 2.0
+    },
+    "safety": {
+      "mask_numbers_dates": true
+    },
+    "openai": {
+      "model": "gpt-4.1-mini",
+      "temperature": 0.1,
+      "max_output_tokens": 2000
+    },
+    "context_window": 1
+  },
+  "consistency": {
+    "enabled": true,
+    "parallel_workers": 2,
+    "context_window": 1,
     "structure_guard": {
       "enabled": true
     },
@@ -126,5 +151,12 @@
     "terminology_report": true,
     "auto_correct_terminology": true,
     "register_report": true
+  },
+  "evaluation": {
+    "enabled": true,
+    "min_chars": 240,
+    "max_samples": 20,
+    "backtranslation_model": "gpt-4.1-mini",
+    "comet_model": "Unbabel/wmt22-cometkiwi-da"
   }
 }
