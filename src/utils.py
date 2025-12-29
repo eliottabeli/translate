@@ -119,6 +119,58 @@ def chunk_segments(
         yield buf
 
 
+def chunk_segments_contextual(
+    segments: List[Dict[str, Any]],
+    max_chars_per_chunk: int = 9000,
+    max_segments_per_chunk: int = 8,
+) -> Iterator[List[Dict[str, Any]]]:
+    """Chunk segments by logical context groups (sections/lists) then apply size caps."""
+
+    if not segments:
+        return
+
+    def _context_key(seg: Dict[str, Any]) -> str:
+        return seg.get("context_group") or seg.get("section_id") or "__default__"
+
+    grouped: List[List[Dict[str, Any]]] = []
+    current_key: Optional[str] = None
+    buf: List[Dict[str, Any]] = []
+
+    for seg in segments:
+        key = _context_key(seg)
+        if current_key is None:
+            current_key = key
+        if key != current_key:
+            if buf:
+                grouped.append(buf)
+            buf = [seg]
+            current_key = key
+        else:
+            buf.append(seg)
+
+    if buf:
+        grouped.append(buf)
+
+    for group in grouped:
+        # Within a context group, still respect size constraints.
+        cursor: List[Dict[str, Any]] = []
+        cursor_chars = 0
+        for seg in group:
+            seg_len = len(seg.get("html", ""))
+            if (cursor and (cursor_chars + seg_len > max_chars_per_chunk)) or (
+                len(cursor) >= max_segments_per_chunk
+            ):
+                yield cursor
+                cursor = []
+                cursor_chars = 0
+
+            cursor.append(seg)
+            cursor_chars += seg_len
+
+        if cursor:
+            yield cursor
+
+
 def strip_control_chars(s: str) -> str:
     # Keep \n and \t
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", s)
