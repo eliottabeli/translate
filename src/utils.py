@@ -126,7 +126,7 @@ def chunk_segments_contextual(
     """Chunk segments by logical context groups (sections/lists) then apply size caps."""
 
     if not segments:
-        return
+        return iter(())
 
     def _context_key(seg: Dict[str, Any]) -> str:
         return seg.get("context_group") or seg.get("section_id") or "__default__"

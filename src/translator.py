@@ -515,6 +515,10 @@ class RateLimiter:
             self._last_ts = time.monotonic()
 
 
+class MissingApiKeyError(RuntimeError):
+    """Raised when a required provider API key is missing."""
+
+
 class OpenAITranslator:
     """
     OpenAI translator that uses a strict prompt to preserve HTML.
@@ -527,7 +531,9 @@ class OpenAITranslator:
     def __init__(self, api_key: Optional[str] = None, cfg: Optional[OpenAIConfig] = None):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
         if not self.api_key:
-            raise RuntimeError("Missing OPENAI_API_KEY. Put it in .env or environment variables.")
+            raise MissingApiKeyError(
+                "OPENAI_API_KEY manquant : définissez la variable d'environnement ou ajoutez-la à votre .env."
+            )
         self.cfg = cfg or OpenAIConfig()
 
         from openai import OpenAI  # type: ignore
@@ -577,7 +583,9 @@ class DeepLTranslator:
     def __init__(self, auth_key: Optional[str] = None, formality: str = "more", preserve_formatting: bool = True):
         self.auth_key = auth_key or os.getenv("DEEPL_AUTH_KEY", "")
         if not self.auth_key:
-            raise RuntimeError("Missing DEEPL_AUTH_KEY. Put it in .env or environment variables.")
+            raise MissingApiKeyError(
+                "DEEPL_AUTH_KEY manquant : définissez la variable d'environnement ou ajoutez-la à votre .env."
+            )
         self.formality = formality
         self.preserve_formatting = preserve_formatting
 
