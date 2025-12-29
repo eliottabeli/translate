@@ -23,6 +23,7 @@ from src.translator import (
     OpenAIRevisor,
     DeepLTranslator,
     DummyTranslator,
+    MissingApiKeyError,
     translate_segments,
     revise_segments,
     load_style_guide,
@@ -177,7 +178,11 @@ def translate_pipeline(
     logger,
 ) -> Tuple[List[Dict[str, Any]], TranslationMemory]:
     provider = cfg["translation"].get("provider", "openai").lower()
-    translator = build_translator(provider, cfg)
+    try:
+        translator = build_translator(provider, cfg)
+    except MissingApiKeyError as exc:
+        logger.error(str(exc))
+        raise
     chcfg = cfg["translation"].get("chunking", {})
     sched_cfg = cfg["translation"].get("scheduling", {})
     guard_cfg = cfg["translation"].get("structure_guard", {})
@@ -376,6 +381,8 @@ def main() -> None:
 
     try:
         translated, tm = translate_pipeline(segments, cfg, paths, glossary_map, style_guide, audit, logger)
+    except MissingApiKeyError:
+        raise SystemExit(1)
     except Exception:
         logger.exception("Translation failed.")
         raise SystemExit(1)
@@ -411,12 +418,16 @@ def main() -> None:
         logger.exception("Post-processing failed.")
         raise SystemExit(1)
 
-    try:
-        logger.info("8) QA reports…")
-        run_qa_reports(translated, cfg, paths, glossary_map, audit, logger)
-    except Exception:
-        logger.exception("QA stage failed.")
-        raise SystemExit(1)
+    qa_cfg = cfg.get("qa", {})
+    if qa_cfg.get("enabled", True):
+        try:
+            logger.info("8) QA reports…")
+            run_qa_reports(translated, cfg, paths, glossary_map, audit, logger)
+        except Exception:
+            logger.exception("QA stage failed.")
+            raise SystemExit(1)
+    else:
+        logger.info("8) QA reports skipped (qa.enabled=false).")
 
     audit_path = paths.get("audit_report", "logs/audit.json")
     storage.write_json(audit_path, audit.as_list())

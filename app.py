@@ -18,6 +18,7 @@ from src.translator import (
     OpenAIConfig,
     DeepLTranslator,
     DummyTranslator,
+    MissingApiKeyError,
     translate_segments,
 )
 from src.postproc import apply_glossary_to_fragment, compare_html_structure, numbers_and_citations_check
@@ -130,23 +131,27 @@ def main() -> None:
             glossary_map = glossary_to_map(glossary_rows)
 
             # Instantiate translator
-            if provider == "openai":
-                ocfg = cfg["translation"].get("openai", {})
-                tr = OpenAITranslator(cfg=OpenAIConfig(
-                    model=ocfg.get("model", "gpt-4.1-mini"),
-                    temperature=float(ocfg.get("temperature", 0.1)),
-                    max_output_tokens=int(ocfg.get("max_output_tokens", 2000)),
-                ))
-            elif provider == "deepl":
-                dcfg = cfg["translation"].get("deepl", {})
-                tr = DeepLTranslator(
-                    formality=dcfg.get("formality", "more"),
-                    preserve_formatting=bool(dcfg.get("preserve_formatting", True)),
-                )
-            elif provider == "dummy":
-                tr = DummyTranslator()
-            else:
-                st.error(f"Provider inconnu: {provider}")
+            try:
+                if provider == "openai":
+                    ocfg = cfg["translation"].get("openai", {})
+                    tr = OpenAITranslator(cfg=OpenAIConfig(
+                        model=ocfg.get("model", "gpt-4.1-mini"),
+                        temperature=float(ocfg.get("temperature", 0.1)),
+                        max_output_tokens=int(ocfg.get("max_output_tokens", 2000)),
+                    ))
+                elif provider == "deepl":
+                    dcfg = cfg["translation"].get("deepl", {})
+                    tr = DeepLTranslator(
+                        formality=dcfg.get("formality", "more"),
+                        preserve_formatting=bool(dcfg.get("preserve_formatting", True)),
+                    )
+                elif provider == "dummy":
+                    tr = DummyTranslator()
+                else:
+                    st.error(f"Provider inconnu: {provider}")
+                    return
+            except MissingApiKeyError as exc:
+                st.error(str(exc))
                 return
 
             chcfg = cfg["translation"].get("chunking", {})
