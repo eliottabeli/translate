@@ -1,0 +1,72 @@
+{
+  "paths": {
+    "raw_html": "data/raw/document.html",
+    "raw_images_dir": "data/raw/images",
+    "segments_json": "data/segments/segments.json",
+    "segments_meta_json": "data/segments/segments_meta.json",
+    "images_ocr_json": "data/segments/images_ocr.json",
+    "glossary_json": "data/segments/glossary.json",
+    "translations_json": "data/translations/segments_translated.json",
+    "exports_dir": "data/exports",
+    "logs_dir": "logs"
+  },
+  "segmentation": {
+    "block_tags": [
+      "p",
+      "h1",
+      "h2",
+      "h3",
+      "li",
+      "figcaption",
+      "blockquote"
+    ],
+    "include_empty": false
+  },
+  "ocr": {
+    "enabled": false,
+    "lang": "eng",
+    "tesseract_cmd": "",
+    "only_if_filename_matches": ""
+  },
+  "glossary": {
+    "enabled": true,
+    "top_n": 150,
+    "min_len": 4,
+    "include_from_tags": [
+      "em",
+      "i",
+      "strong"
+    ],
+    "stopwords_lang": "english"
+  },
+  "translation": {
+    "enabled": true,
+    "source_lang": "EN",
+    "target_lang": "FR",
+    "provider": "openai",
+    "openai": {
+      "model": "gpt-4.1-mini",
+      "temperature": 0.1,
+      "max_output_tokens": 2000
+    },
+    "deepl": {
+      "formality": "more",
+      "preserve_formatting": true
+    },
+    "chunking": {
+      "max_chars_per_chunk": 9000,
+      "max_segments_per_chunk": 8
+    }
+  },
+  "postproc": {
+    "apply_glossary": true,
+    "verify_html_structure": true,
+    "verify_attributes": true,
+    "verify_numbers_dates": true
+  },
+  "qa": {
+    "enabled": false,
+    "back_translation": false,
+    "min_difflib_ratio": 0.65
+  }
+}
