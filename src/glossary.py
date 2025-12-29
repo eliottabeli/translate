@@ -136,6 +136,7 @@ def extract_term_candidates(
     min_len: int = 3,
     stopwords_lang: str = "english",
     max_contexts: int = 5,
+    include_from_tags: Optional[Iterable[str]] = None,
 ) -> List[TermCandidate]:
     """
     Multi-signal candidate extraction for glossary building.
@@ -150,6 +151,7 @@ def extract_term_candidates(
     """
 
     stop = _get_stopwords(stopwords_lang)
+    emphasize_tags = list(include_from_tags or ["em", "i", "strong"])
 
     counts: Counter[str] = Counter()
     signals: Dict[str, Counter[str]] = defaultdict(Counter)
@@ -171,7 +173,7 @@ def extract_term_candidates(
                     contexts[term].append(text[:240])
 
         # typography signals
-        for tname in ("em", "i", "strong"):
+        for tname in emphasize_tags:
             for node in soup.find_all(tname):
                 term_text = node.get_text(" ", strip=True)
                 if len(term_text) >= min_len:
@@ -294,6 +296,38 @@ def draft_glossary_rows(candidates: List[TermCandidate], top_n: int = 200) -> Li
                 "notes": "",
             }
         )
+    return rows
+
+
+def extract_glossary_candidates(
+    segments: List[Dict[str, Any]],
+    top_n: int = 150,
+    min_len: int = 4,
+    include_from_tags: Optional[Iterable[str]] = None,
+    stopwords_lang: str = "english",
+    max_contexts: int = 5,
+    return_candidates: bool = False,
+) -> Any:
+    """Convenience helper used by the Streamlit UI.
+
+    It wraps :func:`extract_term_candidates` and immediately converts the
+    candidates into editable glossary rows so the UI can save a ready-to-edit
+    glossary.json file. When ``return_candidates`` is True the raw
+    :class:`TermCandidate` list is also returned for downstream inspection or
+    storage (e.g., term_candidates.json).
+    """
+
+    candidates = extract_term_candidates(
+        segments,
+        top_n=top_n,
+        min_len=min_len,
+        stopwords_lang=stopwords_lang,
+        max_contexts=max_contexts,
+        include_from_tags=include_from_tags,
+    )
+    rows = draft_glossary_rows(candidates, top_n=top_n)
+    if return_candidates:
+        return rows, candidates
     return rows
 
 
