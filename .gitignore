@@ -1,0 +1,117 @@
+####################################
+# Python
+####################################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+build/
+dist/
+
+####################################
+# Virtual environments
+####################################
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.*
+
+####################################
+# OS / Editor
+####################################
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+*.swp
+*.swo
+*.swn
+.idea/
+.vscode/
+*.code-workspace
+
+####################################
+# Streamlit
+####################################
+.streamlit/secrets.toml
+.streamlit/.cache/
+
+####################################
+# Logs
+####################################
+logs/
+*.log
+
+####################################
+# Large / generated data
+####################################
+data/raw/
+data/segments/
+data/translations/
+data/exports/
+data/tmp/
+data/cache/
+
+# Keep empty folders (optional)
+!data/**/.gitkeep
+
+####################################
+# Translation artifacts
+####################################
+translated.html
+translated.json
+segments.json
+glossary.json
+terminology_report.csv
+qa_report.json
+
+####################################
+# OCR
+####################################
+*.hocr
+*.ocr.json
+
+####################################
+# Model / LLM artifacts
+####################################
+*.embeddings
+*.faiss
+*.index
+*.vectorstore
+
+####################################
+# Test artifacts
+####################################
+.coverage
+.pytest_cache/
+htmlcov/
+
+####################################
+# Jupyter / experiments
+####################################
+.ipynb_checkpoints/
+*.ipynb
+
+####################################
+# Docker
+####################################
+docker-compose.override.yml
+
+####################################
+# PDFs / exports
+####################################
+*.pdf
+*.docx
+
+####################################
+# Temporary / debug
+####################################
+tmp/
+cache/
+debug/
